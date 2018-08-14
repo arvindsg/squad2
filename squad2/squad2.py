@@ -204,7 +204,7 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
     if answer_texts:
         metadata['answer_texts'] = answer_texts
 
-    if token_spans:
+    if token_spans is not None:
         if len(token_spans)>0:
             # There may be multiple answer annotations, so we pick the one that occurs the most.  This
             # only matters on the SQuAD dev set, and it means our computed metrics ("start_acc",
@@ -221,7 +221,8 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
         else:
             fields['span_start'] = IndexField(0, passage_field)
             fields['span_end'] = IndexField(0, passage_field)
-
+    else:
+        print("Token spans empty")
     metadata.update(additional_metadata)
     fields['metadata'] = MetadataField(metadata)
     return Instance(fields)
