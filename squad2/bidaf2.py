@@ -113,7 +113,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         else:
             self._dropout = lambda x: x
         self._mask_lstms = mask_lstms
-
+        self.dummy=torch.nn.Linear(1,1)
         initializer(self)
 
     def forward(self,  # type: ignore
@@ -123,6 +123,9 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                 span_start: torch.IntTensor = None,
                 span_end: torch.IntTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+        output_dict={}
+        output_dict["loss"] = torch.sum(self.dummy(span_start.float()))
+        return output_dict;
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -314,7 +317,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
 #                 'start_acc': self._span_start_accuracy.get_metric(reset),
 #                 'end_acc': self._span_end_accuracy.get_metric(reset),
 #                 'span_acc': self._span_accuracy.get_metric(reset),
-#                 'em': exact_match,
+                'em': 1,
 #                 'f1': f1_score,
                 }
 
