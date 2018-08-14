@@ -205,18 +205,22 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
         metadata['answer_texts'] = answer_texts
 
     if token_spans:
-        # There may be multiple answer annotations, so we pick the one that occurs the most.  This
-        # only matters on the SQuAD dev set, and it means our computed metrics ("start_acc",
-        # "end_acc", and "span_acc") aren't quite the same as the official metrics, which look at
-        # all of the annotations.  This is why we have a separate official SQuAD metric calculation
-        # (the "em" and "f1" metrics use the official script).
-        candidate_answers: Counter = Counter()
-        for span_start, span_end in token_spans:
-            candidate_answers[(span_start, span_end)] += 1
-        span_start, span_end = candidate_answers.most_common(1)[0][0]
-
-        fields['span_start'] = IndexField(span_start, passage_field)
-        fields['span_end'] = IndexField(span_end, passage_field)
+        if len(token_spans)>0:
+            # There may be multiple answer annotations, so we pick the one that occurs the most.  This
+            # only matters on the SQuAD dev set, and it means our computed metrics ("start_acc",
+            # "end_acc", and "span_acc") aren't quite the same as the official metrics, which look at
+            # all of the annotations.  This is why we have a separate official SQuAD metric calculation
+            # (the "em" and "f1" metrics use the official script).
+            candidate_answers: Counter = Counter()
+            for span_start, span_end in token_spans:
+                candidate_answers[(span_start, span_end)] += 1
+            span_start, span_end = candidate_answers.most_common(1)[0][0]
+    
+            fields['span_start'] = IndexField(span_start, passage_field)
+            fields['span_end'] = IndexField(span_end, passage_field)
+        else:
+            fields['span_start'] = IndexField(0, passage_field)
+            fields['span_end'] = IndexField(0, passage_field)
 
     metadata.update(additional_metadata)
     fields['metadata'] = MetadataField(metadata)
