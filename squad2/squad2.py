@@ -68,17 +68,23 @@ class Squad2Reader(DatasetReader):
                     
                     question_text = question_answer["question"].strip().replace("\n", "")
                     answer_impossible=question_answer["is_impossible"]
-                    answer_texts = [answer['text'] for answer in question_answer['answers']]
-                    span_starts = [answer['answer_start'] for answer in question_answer['answers']]
-                    span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
+                    
+                    
                     if answer_impossible:
                         jebaited_texts= [answer['text'] for answer in question_answer['plausible_answers']]
                         jebaited_span_starts = [answer['answer_start'] for answer in question_answer['plausible_answers']]
                         jebaited_span_ends = [start + len(answer) for start, answer in zip(jebaited_span_starts, jebaited_texts)]
+                        answer_texts= [""]
+                        span_starts = [0]
+                        span_ends = [0]
                     else:
+                        answer_texts = [answer['text'] for answer in question_answer['answers']]
                         jebaited_texts=[]
                         jebaited_span_starts=[]
                         jebaited_span_ends=[]
+                        span_starts = [answer['answer_start'] for answer in question_answer['answers']]
+                        span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
+                    
                     instance = self.text_to_instance(question_text,
                                                      paragraph,
                                                      answer_impossible,
@@ -109,9 +115,12 @@ class Squad2Reader(DatasetReader):
         # `passage_tokens`, as the latter is what we'll actually use for supervision.
         token_spans: List[Tuple[int, int]] = []
         passage_offsets = [(token.idx, token.idx + len(token.text)) for token in passage_tokens]
-        for char_span_start, char_span_end in jebaited_char_spans  if answer_impossible else char_spans:
-            (span_start, span_end), error = util.char_span_to_token_span(passage_offsets,
-                                                                         (char_span_start, char_span_end))
+        for char_span_start, char_span_end in char_spans:
+            if char_span_start==0 and char_span_end==0:
+                (span_start, span_end), error = (0,0),None
+            else:
+                (span_start, span_end), error = util.char_span_to_token_span(passage_offsets,
+                                                                             (char_span_start, char_span_end))                
             if error:
                 logger.debug("Passage: %s", passage_text)
                 logger.debug("Passage tokens: %s", passage_tokens)
@@ -128,7 +137,9 @@ class Squad2Reader(DatasetReader):
                                                         self._token_indexers,
                                                         passage_text,
                                                         token_spans,
-                                                        jebaited_texts if answer_impossible else answer_texts,answer_impossible)
+                                                        answer_texts,
+                                                        jebaited_texts,
+                                                        answer_impossible)
     @classmethod
     def from_params(cls, params: Params) -> 'Squad2Reader':
         tokenizer = Tokenizer.from_params(params.pop('tokenizer', {}))
@@ -145,6 +156,7 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
                                         passage_text: str,
                                         token_spans: List[Tuple[int, int]] = None,
                                         answer_texts: List[str] = None,
+                                        jebait_answer_texts:List[str] = None,
                                         is_answer_jebait:bool=None,
                                         additional_metadata: Dict[str, Any] = None) -> Instance:
     """
@@ -203,7 +215,8 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
             }
     if answer_texts:
         metadata['answer_texts'] = answer_texts
-
+    if jebait_answer_texts:
+        metadata['jebait_answer_texts']=jebait_answer_texts
     if token_spans is not None:
         if len(token_spans)>0:
             # There may be multiple answer annotations, so we pick the one that occurs the most.  This
