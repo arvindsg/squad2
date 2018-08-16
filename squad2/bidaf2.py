@@ -15,7 +15,7 @@ from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
-
+import math
 
 @Model.register("bidaf2")
 class BidirectionalAttentionFlowWithNoAnswerOption(Model):
@@ -286,26 +286,30 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
 #             self._span_accuracy(best_span, torch.stack([span_start, span_end], -1))
             output_dict["loss"] = loss
 
-#         # Compute the EM and F1 on SQuAD and add the tokenized input to the output.
-#         if metadata is not None:
-#             output_dict['best_span_str'] = []
-#             question_tokens = []
-#             passage_tokens = []
-#             for i in range(batch_size):
-#                 question_tokens.append(metadata[i]['question_tokens'])
-#                 passage_tokens.append(metadata[i]['passage_tokens'])
-#                 passage_str = metadata[i]['original_passage']
-#                 offsets = metadata[i]['token_offsets']
-#                 predicted_span = tuple(best_span[i].detach().cpu().numpy())
-#                 start_offset = offsets[predicted_span[0]][0]
-#                 end_offset = offsets[predicted_span[1]][1]
-#                 best_span_string = passage_str[start_offset:end_offset]
-#                 output_dict['best_span_str'].append(best_span_string)
-#                 answer_texts = metadata[i].get('answer_texts', [])
-#                 if answer_texts:
-#                     self._squad_metrics(best_span_string, answer_texts)
-#             output_dict['question_tokens'] = question_tokens
-#             output_dict['passage_tokens'] = passage_tokens
+        # Compute the EM and F1 on SQuAD and add the tokenized input to the output.
+        
+        if metadata is not None:
+            output_dict['best_span_str'] = []
+            question_tokens = []
+            passage_tokens = []
+            for i in range(batch_size):
+                question_tokens.append(metadata[i]['question_tokens'])
+                passage_tokens.append(metadata[i]['passage_tokens'])
+                passage_str = metadata[i]['original_passage']
+                offsets = metadata[i]['token_offsets']
+                predicted_span = tuple(best_span[i].detach().cpu().numpy())
+                start_offset = offsets[predicted_span[0]][0]
+                end_offset = offsets[predicted_span[1]][1]
+                if end_offset>start_offset:
+                    best_span_string = passage_str[start_offset:end_offset]
+                else:
+                    best_span_string=""
+                output_dict['best_span_str'].append(best_span_string)
+                answer_texts = metadata[i].get('answer_texts', [])
+                if answer_texts:
+                    self._squad_metrics(best_span_string, answer_texts)
+            output_dict['question_tokens'] = question_tokens
+            output_dict['passage_tokens'] = passage_tokens
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
@@ -314,7 +318,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
 #                 'start_acc': self._span_start_accuracy.get_metric(reset),
 #                 'end_acc': self._span_end_accuracy.get_metric(reset),
 #                 'span_acc': self._span_accuracy.get_metric(reset),
-#                 'em': exact_match,
+                'em': exact_match,
 #                 'f1': f1_score,
                 }
 
@@ -323,10 +327,10 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         if span_start_logits.dim() != 2 or span_end_logits.dim() != 2:
             raise ValueError("Input shapes must be (batch_size, passage_length)")
         batch_size, passage_length = span_start_logits.size()
-        max_span_log_prob = [-1e20] * batch_size
+        max_span_log_prob = [math.log(0.5)+math.log(0.5)] * batch_size
         span_start_argmax = [0] * batch_size
         best_word_span = span_start_logits.new_zeros((batch_size, 2), dtype=torch.long)
-
+        
         span_start_logits = span_start_logits.detach().cpu().numpy()
         span_end_logits = span_end_logits.detach().cpu().numpy()
 
