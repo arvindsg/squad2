@@ -206,7 +206,7 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
     passage_field = TextField(passage_tokens, token_indexers)
     fields['passage'] = passage_field
     fields['question'] = TextField(question_tokens, token_indexers)
-    fields['answer_impossible']= LabelField(0 if is_answer_jebait else 0,"is_jebait_labels",True)
+    fields['answer_impossible']= LabelField(1 if is_answer_jebait else 0,"is_jebait_labels",True)
     metadata = {
             'original_passage': passage_text,
             'token_offsets': passage_offsets,
