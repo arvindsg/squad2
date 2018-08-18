@@ -248,7 +248,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         span_end_probs = sigmoid(span_end_logits)
         span_start_logits = util.replace_masked_values(span_start_logits, passage_mask, -1e7)
         span_end_logits = util.replace_masked_values(span_end_logits, passage_mask, -1e7)
-        best_span = self.get_best_span(span_start_logits, span_end_logits)
+        best_span = self.get_best_span(1-span_start_probs,1- span_end_probs)
 
         output_dict = {
                 "passage_question_attention": passage_question_attention,
@@ -271,13 +271,13 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
             target_end=target_end.squeeze(0).expand(span_end_logits.size(0),-1)==span_end
             target_end=target_end.long()*(-1*(answer_impossible-1).unsqueeze(1).expand(-1,target_start.size(-1)))
             
-            span_start_probs_for_loss=torch.stack([span_start_probs,1-span_start_probs],dim=-1)
+            span_start_logits_for_loss=torch.stack([span_start_logits,-1*span_start_logits],dim=-1)
             
-            loss = util.sequence_cross_entropy_with_logits(span_start_probs_for_loss,target_start, passage_mask)
+            loss = util.sequence_cross_entropy_with_logits(span_start_logits_for_loss,target_start, passage_mask)
             
-            span_end_probs_for_loss=torch.stack([span_end_probs,1-span_end_probs],dim=-1)
-            loss += util.sequence_cross_entropy_with_logits(span_end_probs_for_loss,target_end, passage_mask)
-            
+            span_end_logits_for_loss=torch.stack([span_end_logits,-1*span_end_logits],dim=-1)
+            loss += util.sequence_cross_entropy_with_logits(span_end_logits_for_loss,target_end, passage_mask)
+                
             
             
             
@@ -323,30 +323,32 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                 }
 
     @staticmethod
-    def get_best_span(span_start_logits: torch.Tensor, span_end_logits: torch.Tensor) -> torch.Tensor:
-        if span_start_logits.dim() != 2 or span_end_logits.dim() != 2:
+    def get_best_span(span_start_probs: torch.Tensor, span_end_probs: torch.Tensor) -> torch.Tensor:
+        if span_start_probs.dim() != 2 or span_end_probs.dim() != 2:
             raise ValueError("Input shapes must be (batch_size, passage_length)")
-        batch_size, passage_length = span_start_logits.size()
-        max_span_log_prob = [math.log(0.5)+math.log(0.5)] * batch_size
+        batch_size, passage_length = span_start_probs.size()
+
+        max_span_prob = [.25] * batch_size
+        batch_size, passage_length = span_start_probs.size()
         span_start_argmax = [0] * batch_size
-        best_word_span = span_start_logits.new_zeros((batch_size, 2), dtype=torch.long)
+        best_word_span = span_start_probs.new_zeros((batch_size, 2), dtype=torch.long)
         
-        span_start_logits = span_start_logits.detach().cpu().numpy()
-        span_end_logits = span_end_logits.detach().cpu().numpy()
+        span_start_probs = span_start_probs.detach().cpu().numpy()
+        span_end_probs = span_end_probs.detach().cpu().numpy()
 
         for b in range(batch_size):  # pylint: disable=invalid-name
             for j in range(passage_length):
-                val1 = span_start_logits[b, span_start_argmax[b]]
-                if val1 < span_start_logits[b, j]:
+                val1 = span_start_probs[b, span_start_argmax[b]]
+                if val1 < span_start_probs[b, j]:
                     span_start_argmax[b] = j
-                    val1 = span_start_logits[b, j]
+                    val1 = span_start_probs[b, j]
 
-                val2 = span_end_logits[b, j]
+                val2 = span_end_probs[b, j]
 
-                if val1 + val2 > max_span_log_prob[b]:
+                if val1 * val2 > max_span_prob[b]:
                     best_word_span[b, 0] = span_start_argmax[b]
                     best_word_span[b, 1] = j
-                    max_span_log_prob[b] = val1 + val2
+                    max_span_prob[b] = val1 + val2
         return best_word_span
     @classmethod
     def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
