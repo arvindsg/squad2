@@ -245,11 +245,14 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         # Shape: (batch_size, passage_length, encoding_dim * 4 + span_end_encoding_dim)
         span_end_input = self._dropout(torch.cat([final_merged_passage, encoded_span_end], dim=-1))
         span_end_logits = self._span_end_predictor(span_end_input).squeeze(-1)
-        span_end_probs = sigmoid(span_end_logits)
+        
         span_start_logits = util.replace_masked_values(span_start_logits, passage_mask, -1e7)
         span_end_logits = util.replace_masked_values(span_end_logits, passage_mask, -1e7)
-        best_span = self.get_best_span(1-span_start_probs,1- span_end_probs)
-
+        span_start_probs = sigmoid(span_start_logits)
+        span_end_probs = sigmoid(span_end_logits)
+        best_span = self.get_best_span(span_start_probs,span_end_probs)
+        
+        
         output_dict = {
                 "passage_question_attention": passage_question_attention,
                 "span_start_logits": span_start_logits,
@@ -271,7 +274,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
             target_end=target_end.squeeze(0).expand(span_end_logits.size(0),-1)==span_end
             target_end=target_end.long()*(-1*(answer_impossible-1).unsqueeze(1).expand(-1,target_start.size(-1)))
             
-            span_start_logits_for_loss=torch.stack([span_start_logits,-1*span_start_logits],dim=-1)
+            span_start_logits_for_loss=torch.stack([-1*span_start_logits,span_start_logits],dim=-1)
             
             loss = util.sequence_cross_entropy_with_logits(span_start_logits_for_loss,target_start, passage_mask)
             
@@ -298,16 +301,25 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                 passage_str = metadata[i]['original_passage']
                 offsets = metadata[i]['token_offsets']
                 predicted_span = tuple(best_span[i].detach().cpu().numpy())
-                start_offset = offsets[predicted_span[0]][0]
-                end_offset = offsets[predicted_span[1]][1]
-                if end_offset>start_offset:
-                    best_span_string = passage_str[start_offset:end_offset]
-                else:
-                    best_span_string=""
-                output_dict['best_span_str'].append(best_span_string)
-                answer_texts = metadata[i].get('answer_texts', [])
-                if answer_texts:
-                    self._squad_metrics(best_span_string, answer_texts)
+                try:
+                    if predicted_span[0]!=-1:
+                        start_offset = offsets[predicted_span[0]][0]
+                    else:
+                        start_offset=-1
+                    if predicted_span[1]!=-1:
+                        end_offset = offsets[predicted_span[1]][1]
+                    else:
+                        end_offset=-1
+                    if end_offset!=-1 and start_offset!=-1:
+                        best_span_string = passage_str[start_offset:end_offset]
+                    else:
+                        best_span_string=""
+                    output_dict['best_span_str'].append(best_span_string)
+                    answer_texts = metadata[i].get('answer_texts', [])
+                    if answer_texts:
+                        self._squad_metrics(best_span_string, answer_texts)
+                except Exception as e:
+                    print(str(e))    
             output_dict['question_tokens'] = question_tokens
             output_dict['passage_tokens'] = passage_tokens
         return output_dict
@@ -331,7 +343,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         max_span_prob = [.25] * batch_size
         batch_size, passage_length = span_start_probs.size()
         span_start_argmax = [0] * batch_size
-        best_word_span = span_start_probs.new_zeros((batch_size, 2), dtype=torch.long)
+        best_word_span = span_start_probs.new_zeros((batch_size, 2), dtype=torch.long)-1
         
         span_start_probs = span_start_probs.detach().cpu().numpy()
         span_end_probs = span_end_probs.detach().cpu().numpy()
