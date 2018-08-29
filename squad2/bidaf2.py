@@ -70,7 +70,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                  phrase_layer: Seq2SeqEncoder,
                  attention_similarity_function: SimilarityFunction,
                  modeling_layer: Seq2SeqEncoder,
-                 span_end_encoder: Seq2SeqEncoder,
+                 span_encoder: Seq2SeqEncoder,
                  dropout: float = 0.2,
                  mask_lstms: bool = True,
                  initializer: InitializerApplicator = InitializerApplicator(),
@@ -83,16 +83,17 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         self._phrase_layer = phrase_layer
         self._matrix_attention = LegacyMatrixAttention(attention_similarity_function)
         self._modeling_layer = modeling_layer
-        self._span_end_encoder = span_end_encoder
+        self._span_encoder = span_encoder 
+        #self._span_end_encoder = span_end_encoder
 
-        encoding_dim = phrase_layer.get_output_dim()
-        modeling_dim = modeling_layer.get_output_dim()
-        span_start_input_dim = encoding_dim * 4 + modeling_dim
-        self._span_start_predictor = TimeDistributed(torch.nn.Linear(span_start_input_dim, 1))
+        #encoding_dim = phrase_layer.get_output_dim()
+        #modeling_dim = modeling_layer.get_output_dim()
+        #span_start_input_dim = encoding_dim * 4 + modeling_dim
+        #self._span_start_predictor = TimeDistributed(torch.nn.Linear(span_start_input_dim, 1))
 
-        span_end_encoding_dim = span_end_encoder.get_output_dim()
-        span_end_input_dim = encoding_dim * 4 + span_end_encoding_dim
-        self._span_end_predictor = TimeDistributed(torch.nn.Linear(span_end_input_dim, 1))
+        #span_end_encoding_dim = span_end_encoder.get_output_dim()
+        #span_end_input_dim = encoding_dim * 4 + span_end_encoding_dim
+        #self._span_end_predictor = TimeDistributed(torch.nn.Linear(span_end_input_dim, 1))
         
         
         # Bidaf has lots of layer dimensions which need to match up - these aren't necessarily
@@ -101,11 +102,11 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                                "modeling layer input dim", "4 * encoding dim")
         check_dimensions_match(text_field_embedder.get_output_dim(), phrase_layer.get_input_dim(),
                                "text field embedder output dim", "phrase layer input dim")
-        check_dimensions_match(span_end_encoder.get_input_dim(), 4 * encoding_dim + 3 * modeling_dim,
+        check_dimensions_match(span_encoder.get_input_dim(), 4 * encoding_dim + 3 * modeling_dim,
                                "span end encoder input dim", "4 * encoding dim + 3 * modeling dim")
         self._answer_impossible_accuracy=BooleanAccuracy()
-        self._span_start_accuracy = BooleanAccuracy()
-        self._span_end_accuracy = BooleanAccuracy()
+        #self._span_start_accuracy = BooleanAccuracy()
+        #self._span_end_accuracy = BooleanAccuracy()
         self._span_accuracy = BooleanAccuracy()
         self._squad_metrics = SquadEmAndF1()
         if dropout > 0:
@@ -218,6 +219,13 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
 
         modeled_passage = self._dropout(self._modeling_layer(final_merged_passage, passage_lstm_mask))
         modeling_dim = modeled_passage.size(-1)
+        combined_repr = torch.cat([final_merged_passage,modeled_passage,modeled_passage*final_merged_passage],dim=-1)
+        
+        '''
+            Use the combined representation to simultaneously predict both span start and end.
+            We do this by gathering all pairs of indices in the sequence and predicting if that span is the answer 
+        '''
+        
 
         # Shape: (batch_size, passage_length, encoding_dim * 4 + modeling_dim))
         span_start_input = self._dropout(torch.cat([final_merged_passage, modeled_passage], dim=-1))
@@ -372,7 +380,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
         similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
         modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
-        span_end_encoder = Seq2SeqEncoder.from_params(params.pop("span_end_encoder"))
+        span_encoder = Seq2SeqEncoder.from_params(params.pop("span_encoder"))
         dropout = params.pop_float('dropout', 0.2)
 
         initializer = InitializerApplicator.from_params(params.pop('initializer', []))
@@ -386,7 +394,7 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                    phrase_layer=phrase_layer,
                    attention_similarity_function=similarity_function,
                    modeling_layer=modeling_layer,
-                   span_end_encoder=span_end_encoder,
+                   span_encoder=span_encoder,
                    dropout=dropout,
                    mask_lstms=mask_lstms,
                    initializer=initializer,
