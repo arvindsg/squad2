@@ -5,11 +5,11 @@ def ifVerbosePrint(*args):
     if verbose:
         print(*args)
 
-def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.zeros([1])):
-    passage=features
-    passage_lengths=feature_lengths
+def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
+    passage=sequence
+    passage_lengths=sequence_lengths
     max_passage_length=torch.max(passage_lengths).item()
-
+    assert max_passage_length==passage.size(1),"Max Passage length doesn't align with tensor shapes"
     #i T
     i=torch.arange(end=max_passage_length).unsqueeze(0).expand(max_passage_length,-1)
     j=torch.arange(end=max_passage_length).unsqueeze(1).expand(-1,max_passage_length)
@@ -25,8 +25,8 @@ def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.ze
     
     ifVerbosePrint(positiveLengthsMask,positiveLengthsMask.shape)
     padTokenIndiceBelowMin=-1
-    max_passage_length=passage.size(1)
-    padTokenIndice=torch.zeros([1]).long()+max_passage_length
+    
+    
     
     
     validIndices=allIndices.masked_select(positiveLengthsMask.unsqueeze(-1).expand(*positiveLengthsMask.size(),-1))
@@ -87,12 +87,23 @@ def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.ze
     validIndicesMask=validIndicesMask.unsqueeze(-1).expand(*expanded_indices_mask.shape)
     expanded_indices_mask=torch.where(validIndicesMask,expanded_indices_mask,torch.zeros([1]).long()+padTokenIndiceBelowMin)
     
-    answer_lengths=torch.sum(expanded_indices_mask!=padTokenIndiceBelowMin,dim=-1)
-    ifVerbosePrint(answer_lengths)
+    
 #     raise Exception
-    expanded_indices_mask=torch.where(expanded_indices_mask==-1,padTokenIndice,expanded_indices_mask)
     ifVerbosePrint(expanded_indices_mask,expanded_indices_mask.shape)
     # raise Exception
+    final_mask=expanded_indices_mask
+    return final_mask
+def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.zeros([1])):
+    final_mask=getValidSubSpansMask(features, feature_lengths, max_span_length)
+    return (*pointedSelect(final_mask, features,padToken),final_mask)
+    
+
+def pointedSelect(expanded_indices_mask,passage,padToken,padTokenIndice=-1):
+    max_passage_length=passage.size(1)
+    padTokenIndiceDummy=torch.zeros([1]).long()+max_passage_length
+    answer_lengths=torch.sum(expanded_indices_mask!=padTokenIndice,dim=-1)
+    ifVerbosePrint(answer_lengths)
+    expanded_indices_mask=torch.where(expanded_indices_mask==padTokenIndice,padTokenIndiceDummy,expanded_indices_mask)
     
     expanded_indices_mask=expanded_indices_mask.unsqueeze(-1).expand(*expanded_indices_mask.shape,passage.size(-1))
     ifVerbosePrint(expanded_indices_mask,expanded_indices_mask.shape)
@@ -106,9 +117,6 @@ def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.ze
     passage=torch.cat((passage,padToken.view(1,1,1,1).expand(*passage.size()[:-2],-1,passage.size(-1))),dim=-2)
     ifVerbosePrint (passage.shape)
     features=torch.gather(passage,dim=-2,index=expanded_indices_mask)
-    
-    ifVerbosePrint(features.narrow(dim=-1,start =0,length=1))
-    ifVerbosePrint(features.shape,answer_lengths)
     return features,answer_lengths
 
 class BetterTimeDistributed(torch.nn.Module):

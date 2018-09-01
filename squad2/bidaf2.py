@@ -230,6 +230,8 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
         #B* T* modelling dim
         modeled_passage = self._dropout(self._modeling_layer(final_merged_passage, passage_lstm_mask))
         modeling_dim = modeled_passage.size(-1)
+        
+        
         combined_repr = torch.cat([final_merged_passage,modeled_passage],dim=-1)
         passage_lengths=get_lengths_from_binary_sequence_mask(passage_lstm_mask)
         #each_answer_feature=B*MaxSubSpans*MaxSpanLength*embedding_dims
@@ -404,30 +406,30 @@ class BidirectionalAttentionFlowWithNoAnswerOption(Model):
                     best_word_span[b, 1] = j
                     max_span_prob[b] = val1 + val2
         return best_word_span
-    @classmethod
-    def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
-        embedder_params = params.pop("text_field_embedder")
-        text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
-        num_highway_layers = params.pop_int("num_highway_layers")
-        phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
-        similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
-        modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
-        span_encoder = Seq2VecEncoder.from_params(params.pop("span_encoder"))
-        dropout = params.pop_float('dropout', 0.2)
-
-        initializer = InitializerApplicator.from_params(params.pop('initializer', []))
-        regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
-
-        mask_lstms = params.pop_bool('mask_lstms', True)
-        params.assert_empty(cls.__name__)
-        return cls(vocab=vocab,
-                   text_field_embedder=text_field_embedder,
-                   num_highway_layers=num_highway_layers,
-                   phrase_layer=phrase_layer,
-                   attention_similarity_function=similarity_function,
-                   modeling_layer=modeling_layer,
-                   span_encoder=span_encoder,
-                   dropout=dropout,
-                   mask_lstms=mask_lstms,
-                   initializer=initializer,
-                   regularizer=regularizer)
+#     @classmethod
+#     def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
+#         embedder_params = params.pop("text_field_embedder")
+#         text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
+#         num_highway_layers = params.pop_int("num_highway_layers")
+#         phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
+#         similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
+#         modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
+#         span_encoder = Seq2VecEncoder.from_params(params.pop("span_encoder"))
+#         dropout = params.pop_float('dropout', 0.2)
+# 
+#         initializer = InitializerApplicator.from_params(params.pop('initializer', []))
+#         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
+# 
+#         mask_lstms = params.pop_bool('mask_lstms', True)
+#         params.assert_empty(cls.__name__)
+#         return cls(vocab=vocab,
+#                    text_field_embedder=text_field_embedder,
+#                    num_highway_layers=num_highway_layers,
+#                    phrase_layer=phrase_layer,
+#                    attention_similarity_function=similarity_function,
+#                    modeling_layer=modeling_layer,
+#                    span_encoder=span_encoder,
+#                    dropout=dropout,
+#                    mask_lstms=mask_lstms,
+#                    initializer=initializer,
+#                    regularizer=regularizer)

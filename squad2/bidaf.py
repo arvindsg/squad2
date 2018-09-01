@@ -13,6 +13,9 @@ from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed
 from allennlp.modules.matrix_attention.legacy_matrix_attention import LegacyMatrixAttention
 from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
+from squad2.utils import getAllSubSpans, BetterTimeDistributed
+from allennlp.nn.util import get_lengths_from_binary_sequence_mask,\
+    get_mask_from_sequence_lengths
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -216,46 +219,85 @@ class BidirectionalAttentionFlow(Model):
 
         modeled_passage = self._dropout(self._modeling_layer(final_merged_passage, passage_lstm_mask))
         modeling_dim = modeled_passage.size(-1)
+        
+        
+        combined_repr = torch.cat([final_merged_passage,modeled_passage],dim=-1)
+        passage_lengths=get_lengths_from_binary_sequence_mask(passage_lstm_mask)
 
-        # Shape: (batch_size, passage_length, encoding_dim * 4 + modeling_dim))
-        span_start_input = self._dropout(torch.cat([final_merged_passage, modeled_passage], dim=-1))
-        # Shape: (batch_size, passage_length)
-        span_start_logits = self._span_start_predictor(span_start_input).squeeze(-1)
-        # Shape: (batch_size, passage_length)
-        span_start_probs = util.masked_softmax(span_start_logits, passage_mask)
+        #each_answer_feature=B*MaxSubSpans*MaxSpanLength*embedding_dims
+        each_answer_features,answer_lengths=getAllSubSpans(combined_repr,passage_lengths,10,padToken=torch.zeros([1]))
+        
+        '''
+            Use the combined representation to simultaneously predict both span start and end.
+            We do this by gathering all pairs of indices in the sequence and predicting if that span is the answer 
+        '''
+        
+        #pass each answer feature through gru
+        def get_mask_from_sequence_lengths_retriever(maxLength):
+            return lambda lengths:get_mask_from_sequence_lengths(lengths.squeeze(-1),maxLength)
+        maxLength=torch.max(answer_lengths)
+        answer_sequence_mask_creator=TimeDistributed(get_mask_from_sequence_lengths_retriever(maxLength))
+        answer_features_mask=answer_sequence_mask_creator(answer_lengths.unsqueeze(-1))
+        
+        answers_encoded=self._dropout(self._span_encoder(each_answer_features,answer_features_mask))
+        
+        answer_logits= self._span_predictor(answers_encoded).squeeze(-1)
+        answer_sequence_mask_creator=BetterTimeDistributed(util.masked_softmax)
 
-        # Shape: (batch_size, modeling_dim)
-        span_start_representation = util.weighted_sum(modeled_passage, span_start_probs)
-        # Shape: (batch_size, passage_length, modeling_dim)
-        tiled_start_representation = span_start_representation.unsqueeze(1).expand(batch_size,
-                                                                                   passage_length,
-                                                                                   modeling_dim)
-
-        # Shape: (batch_size, passage_length, encoding_dim * 4 + modeling_dim * 3)
-        span_end_representation = torch.cat([final_merged_passage,
-                                             modeled_passage,
-                                             tiled_start_representation,
-                                             modeled_passage * tiled_start_representation],
-                                            dim=-1)
-        # Shape: (batch_size, passage_length, encoding_dim)
-        encoded_span_end = self._dropout(self._span_end_encoder(span_end_representation,
-                                                                passage_lstm_mask))
-        # Shape: (batch_size, passage_length, encoding_dim * 4 + span_end_encoding_dim)
-        span_end_input = self._dropout(torch.cat([final_merged_passage, encoded_span_end], dim=-1))
-        span_end_logits = self._span_end_predictor(span_end_input).squeeze(-1)
-        span_end_probs = util.masked_softmax(span_end_logits, passage_mask)
-        span_start_logits = util.replace_masked_values(span_start_logits, passage_mask, -1e7)
-        span_end_logits = util.replace_masked_values(span_end_logits, passage_mask, -1e7)
-        best_span = self.get_best_span(span_start_logits, span_end_logits)
-
+        answer_probs=util.masked_softmax(answer_logits,answer_features_mask.narrow(-1,0,1).squeeze(-1))
+        
+        
         output_dict = {
-                "passage_question_attention": passage_question_attention,
-                "span_start_logits": span_start_logits,
-                "span_start_probs": span_start_probs,
-                "span_end_logits": span_end_logits,
-                "span_end_probs": span_end_probs,
-                "best_span": best_span,
-                }
+        "passage_question_attention": passage_question_attention,
+#         "span_start_logits": span_start_logits,
+#         "span_start_probs": span_start_probs,
+#         "span_end_logits": span_end_logits,
+#         "span_end_probs": span_end_probs,
+        "answer_probs":answer_probs
+#         "best_span": best_span,
+        }
+    #         best_span = self.get_best_span(span_start_probs,span_end_probs)
+
+        
+#         # Shape: (batch_size, passage_length, encoding_dim * 4 + modeling_dim))
+#         span_start_input = self._dropout(torch.cat([final_merged_passage, modeled_passage], dim=-1))
+#         # Shape: (batch_size, passage_length)
+#         span_start_logits = self._span_start_predictor(span_start_input).squeeze(-1)
+#         # Shape: (batch_size, passage_length)
+#         span_start_probs = util.masked_softmax(span_start_logits, passage_mask)
+# 
+#         # Shape: (batch_size, modeling_dim)
+#         span_start_representation = util.weighted_sum(modeled_passage, span_start_probs)
+#         # Shape: (batch_size, passage_length, modeling_dim)
+#         tiled_start_representation = span_start_representation.unsqueeze(1).expand(batch_size,
+#                                                                                    passage_length,
+#                                                                                    modeling_dim)
+# 
+#         # Shape: (batch_size, passage_length, encoding_dim * 4 + modeling_dim * 3)
+#         span_end_representation = torch.cat([final_merged_passage,
+#                                              modeled_passage,
+#                                              tiled_start_representation,
+#                                              modeled_passage * tiled_start_representation],
+#                                             dim=-1)
+#         # Shape: (batch_size, passage_length, encoding_dim)
+#         encoded_span_end = self._dropout(self._span_end_encoder(span_end_representation,
+#                                                                 passage_lstm_mask))
+#         # Shape: (batch_size, passage_length, encoding_dim * 4 + span_end_encoding_dim)
+#         span_end_input = self._dropout(torch.cat([final_merged_passage, encoded_span_end], dim=-1))
+#         span_end_logits = self._span_end_predictor(span_end_input).squeeze(-1)
+#         span_end_probs = util.masked_softmax(span_end_logits, passage_mask)
+#         span_start_logits = util.replace_masked_values(span_start_logits, passage_mask, -1e7)
+#         span_end_logits = util.replace_masked_values(span_end_logits, passage_mask, -1e7)
+#         best_span = self.get_best_span(span_start_logits, span_end_logits)
+
+#         output_dict = {
+#                 "passage_question_attention": passage_question_attention,
+#                 "span_start_logits": span_start_logits,
+#                 "span_start_probs": span_start_probs,
+#                 "span_end_logits": span_end_logits,
+#                 "span_end_probs": span_end_probs,
+#                 "best_span": best_span,
+#                 }
 
         # Compute the loss for training.
         if span_start is not None:
@@ -331,3 +373,4 @@ class BidirectionalAttentionFlow(Model):
                    mask_lstms=mask_lstms,
                    initializer=initializer,
                    regularizer=regularizer)
+
