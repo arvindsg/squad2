@@ -347,56 +347,36 @@ class BidirectionalAttentionFlow(Model):
                 }
 
     @staticmethod
-    def get_best_span(span_start_probs: torch.Tensor, span_end_probs: torch.Tensor) -> torch.Tensor:
-        if span_start_probs.dim() != 2 or span_end_probs.dim() != 2:
-            raise ValueError("Input shapes must be (batch_size, passage_length)")
-        batch_size, passage_length = span_start_probs.size()
-        max_span_log_prob = [-1e20] * batch_size
-        span_start_argmax = [0] * batch_size
-        best_word_span = span_start_probs.new_zeros((batch_size, 2), dtype=torch.long)
+    def get_best_span(span_probs: torch.Tensor) -> torch.Tensor:
+        if span_probs.dim() != 2:
+            raise ValueError("Input shape must be (batch_size, passage_length)")
+        return torch.argmax(span_probs, 1, keepdim)
+        
+    @classmethod
+    def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
+        embedder_params = params.pop("text_field_embedder")
+        text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
+        num_highway_layers = params.pop_int("num_highway_layers")
+        phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
+        similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
+        modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
+        span_end_encoder = Seq2SeqEncoder.from_params(params.pop("span_end_encoder"))
+        dropout = params.pop_float('dropout', 0.2)
 
-        span_start_probs = span_start_probs.detach().cpu().numpy()
-        span_end_probs = span_end_probs.detach().cpu().numpy()
+        initializer = InitializerApplicator.from_params(params.pop('initializer', []))
+        regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
 
-        for b in range(batch_size):  # pylint: disable=invalid-name
-            for j in range(passage_length):
-                val1 = span_start_probs[b, span_start_argmax[b]]
-                if val1 < span_start_probs[b, j]:
-                    span_start_argmax[b] = j
-                    val1 = span_start_probs[b, j]
+        mask_lstms = params.pop_bool('mask_lstms', True)
+        params.assert_empty(cls.__name__)
+        return cls(vocab=vocab,
+                   text_field_embedder=text_field_embedder,
+                   num_highway_layers=num_highway_layers,
+                   phrase_layer=phrase_layer,
+                   attention_similarity_function=similarity_function,
+                   modeling_layer=modeling_layer,
+                   span_end_encoder=span_end_encoder,
+                   dropout=dropout,
+                   mask_lstms=mask_lstms,
+                   initializer=initializer,
+                   regularizer=regularizer)
 
-                val2 = span_end_probs[b, j]
-
-                if val1 + val2 > max_span_log_prob[b]:
-                    best_word_span[b, 0] = span_start_argmax[b]
-                    best_word_span[b, 1] = j
-                    max_span_log_prob[b] = val1 + val2
-        return best_word_span
-
-#     @classmethod
-#     def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
-#         embedder_params = params.pop("text_field_embedder")
-#         text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
-#         num_highway_layers = params.pop_int("num_highway_layers")
-#         phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
-#         similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
-#         modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
-#         span_end_encoder = Seq2SeqEncoder.from_params(params.pop("span_end_encoder"))
-#         dropout = params.pop_float('dropout', 0.2)
-# 
-#         initializer = InitializerApplicator.from_params(params.pop('initializer', []))
-#         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
-# 
-#         mask_lstms = params.pop_bool('mask_lstms', True)
-#         params.assert_empty(cls.__name__)
-#         return cls(vocab=vocab,
-#                    text_field_embedder=text_field_embedder,
-#                    num_highway_layers=num_highway_layers,
-#                    phrase_layer=phrase_layer,
-#                    attention_similarity_function=similarity_function,
-#                    modeling_layer=modeling_layer,
-#                    span_end_encoder=span_end_encoder,
-#                    dropout=dropout,
-#                    mask_lstms=mask_lstms,
-#                    initializer=initializer,
-#                    regularizer=regularizer)

@@ -241,3 +241,13 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
     return Instance(fields)
 
 print("Squad 2 imported")
+
+if __name__=='__main__':
+    reader = Squad2Reader()
+    span_lens = []
+    for row in reader._read('/home/aman/Documents/squad2/train-v2.0.json'):
+        #if row.answer_imp
+        if row.fields['answer_impossible']!=1:
+            span_len = row.fields['span_end'].sequence_index - row.fields['span_start'].sequence_index +1 
+            span_lens.append(span_len)
+    print(Counter(span_lens))
