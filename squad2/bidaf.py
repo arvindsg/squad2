@@ -13,7 +13,8 @@ from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed
 from allennlp.modules.matrix_attention.legacy_matrix_attention import LegacyMatrixAttention
 from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
-from squad2.utils import getAllSubSpans, BetterTimeDistributed
+from squad2.utils import getAllSubSpans, BetterTimeDistributed, masked_softmax,\
+    getIndiceForGoldSubSpan
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask,\
     get_mask_from_sequence_lengths
 
@@ -242,11 +243,12 @@ class BidirectionalAttentionFlow(Model):
         answers_encoded=self._dropout(self._span_encoder(each_answer_features,answer_features_mask))
         
         answer_logits= self._span_predictor(answers_encoded).squeeze(-1)
-        answer_sequence_mask_creator=BetterTimeDistributed(util.masked_softmax)
+#         answer_sequence_mask_creator=BetterTimeDistributed(masked_softmax)
 
         answer_probs=util.masked_softmax(answer_logits,answer_features_mask.narrow(-1,0,1).squeeze(-1))
         
-        
+        best_span = utils.get_best_span(answer_probs)
+
         output_dict = {
         "passage_question_attention": passage_question_attention,
 #         "span_start_logits": span_start_logits,
@@ -301,11 +303,15 @@ class BidirectionalAttentionFlow(Model):
 
         # Compute the loss for training.
         if span_start is not None:
-            loss = nll_loss(util.masked_log_softmax(span_start_logits, passage_mask), span_start.squeeze(-1))
-            self._span_start_accuracy(span_start_logits, span_start.squeeze(-1))
-            loss += nll_loss(util.masked_log_softmax(span_end_logits, passage_mask), span_end.squeeze(-1))
-            self._span_end_accuracy(span_end_logits, span_end.squeeze(-1))
-            self._span_accuracy(best_span, torch.stack([span_start, span_end], -1))
+#             loss = nll_loss(util.masked_log_softmax(span_start_logits, passage_mask), span_start.squeeze(-1))
+#             self._span_start_accuracy(span_start_logits, span_start.squeeze(-1))
+#             loss += nll_loss(util.masked_log_softmax(span_end_logits, passage_mask), span_end.squeeze(-1))
+#             self._span_end_accuracy(span_end_logits, span_end.squeeze(-1))
+#             self._span_accuracy(best_span, torch.stack([span_start, span_end], -1))
+            print(answer_logits.shape,answer_features_mask.shape)
+            
+            
+            loss=nll_loss(util.masked_log_softmax(answer_logits,answer_features_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_mask))
             output_dict["loss"] = loss
 
         # Compute the EM and F1 on SQuAD and add the tokenized input to the output.

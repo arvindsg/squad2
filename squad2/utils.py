@@ -96,7 +96,22 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
 def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.zeros([1])):
     final_mask=getValidSubSpansMask(features, feature_lengths, max_span_length)
     return (*pointedSelect(final_mask, features,padToken),final_mask)
+def getIndiceForGoldSubSpan(goldStarts,goldEnds,mask):
     
+    print(mask,mask.shape)
+    spanEnds=torch.max(mask,dim=-1)[0]
+    maxSpan=torch.max(mask)
+    maskLong=mask.long()
+    spanStarts=torch.min(((maskLong!=-1).long()*maskLong)+((maskLong==-1).long()*(maxSpan+1)),dim=-1)[0]
+    #predictedSpans B*Max_Answers*T
+    predictedSpans=torch.stack([spanStarts,spanEnds],dim=-1)
+    #goldSpans B*2
+    goldSpans=torch.stack([goldStarts,goldEnds],dim=-1)
+#     print(predictedSpans)
+#     print(goldSpans)
+    goldMask=torch.sum((predictedSpans==goldSpans.unsqueeze(1)),dim=-1)==2
+    goldIndices=torch.argmax(goldMask, dim=1)
+    return goldIndices
 
 def pointedSelect(expanded_indices_mask,passage,padToken,padTokenIndice=-1):
     max_passage_length=passage.size(1)
@@ -138,3 +153,4 @@ def masked_softmax(vec, mask, dim=1):
     zeros=(masked_sums == 0)
     masked_sums += zeros.float()
     return masked_exps/masked_sums
+
