@@ -85,7 +85,7 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
     
     validIndicesMask=torch.max(expanded_indices_mask,dim=-1)[0]<passage_lengths.view(*passage_lengths.size(),1).expand(*passage_lengths.size(),expanded_indices_mask.size(-2))
     validIndicesMask=validIndicesMask.unsqueeze(-1).expand(*expanded_indices_mask.shape)
-    expanded_indices_mask=torch.where(validIndicesMask,expanded_indices_mask,torch.zeros([1]).long()+padTokenIndiceBelowMin)
+    expanded_indices_mask=torch.where(validIndicesMask,expanded_indices_mask,torch.zeros([1],device=sequence.device).long()+padTokenIndiceBelowMin)
     
     
 #     raise Exception
@@ -93,7 +93,9 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
     # raise Exception
     final_mask=expanded_indices_mask
     return final_mask
-def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.zeros([1])):
+def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=None):
+    if padToken is None:
+        padToken=torch.zeros([1],device=features.device)
     final_mask=getValidSubSpansMask(features, feature_lengths, max_span_length)
     return (*pointedSelect(final_mask, features,padToken),final_mask)
 def getSpanEnds(mask):
@@ -124,7 +126,7 @@ def get_best_answers_mask_over_passage(answer_features_over_passage_mask,best_an
 
 def pointedSelect(expanded_indices_mask,passage,padToken,padTokenIndice=-1):
     max_passage_length=passage.size(1)
-    padTokenIndiceDummy=torch.zeros([1]).long()+max_passage_length
+    padTokenIndiceDummy=torch.zeros([1],device=passage.device).long()+max_passage_length
     answer_lengths=torch.sum(expanded_indices_mask!=padTokenIndice,dim=-1)
     ifVerbosePrint(answer_lengths)
     expanded_indices_mask=torch.where(expanded_indices_mask==padTokenIndice,padTokenIndiceDummy,expanded_indices_mask)
