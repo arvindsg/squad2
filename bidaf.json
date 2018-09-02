@@ -105,7 +105,7 @@
     },
     "optimizer": {
 //       "lr":1E-4
-      "type": "Adagrad",
+      "type": "adagrad",
 //       "betas": [0.9, 0.9]
     }
   },
