@@ -63,7 +63,8 @@ class SquadReaderFilter(DatasetReader):
                 for question_answer in paragraph_json['qas']:
                     question_text = question_answer["question"].strip().replace("\n", "")
                     answer_texts = [answer['text'] for answer in question_answer['answers']]
-                    if min([len(self._tokenizer.tokenize(x)) for x in answer_texts])>10 or len(tokenized_paragraph) > 255:
+                    tokenized_question=self._tokenizer.tokenize(question_text)
+                    if min([len(self._tokenizer.tokenize(x)) for x in answer_texts])>10 or len(tokenized_paragraph) > 255 or len(tokenized_question)<2:
                         print('skipping',cnt)
                         cnt+=1
                         continue

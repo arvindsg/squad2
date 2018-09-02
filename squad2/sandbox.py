@@ -2,6 +2,7 @@ import torch
 from utils import getAllSubSpans
 from utils import getIndiceForGoldSubSpan
 from squad2.utils import get_best_answers_mask_over_passage
+import torch.nn.modules.conv
 #lengths=([10])
 passage=torch.randn(3,8,6)
 passage_lengths=torch.LongTensor([8,3,1])
