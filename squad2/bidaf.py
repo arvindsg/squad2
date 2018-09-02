@@ -237,11 +237,16 @@ class BidirectionalAttentionFlowSimal(Model):
         answer_sequence_mask_creator=TimeDistributed(get_mask_from_sequence_lengths_retriever(maxLength))
         answer_features_mask=answer_sequence_mask_creator(answer_lengths.unsqueeze(-1))
         
+        del answer_sequence_mask_creator
+        
         answers_encoded=self._dropout(self._span_encoder(each_answer_features,answer_features_mask))
         
         answer_logits= self._span_predictor(answers_encoded).squeeze(-1)
 #         answer_sequence_mask_creator=BetterTimeDistributed(masked_softmax)
         valid_answers_mask=answer_features_mask.narrow(-1,0,1).squeeze(-1)
+        
+        del answer_features_mask
+        
         answer_probs=masked_softmax(answer_logits,valid_answers_mask)
         
         best_span_answer_probs_indice=self.get_best_span(answer_probs)
@@ -314,6 +319,8 @@ class BidirectionalAttentionFlowSimal(Model):
             
             
             loss=nll_loss(util.masked_log_softmax(answer_logits,valid_answers_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_over_passage_mask))
+            
+            del answer_features_over_passage_mask
             output_dict["loss"] = loss
 
         # Compute the EM and F1 on SQuAD and add the tokenized input to the output.
