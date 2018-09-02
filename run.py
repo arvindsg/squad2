@@ -5,6 +5,7 @@ import sys
 import squad2.squad2
 import squad2.bidaf2
 import squad2.bidaf
+import squad2.squad_filter
 if os.environ.get("ALLENNLP_DEBUG"):
     LEVEL = logging.DEBUG
 else:
