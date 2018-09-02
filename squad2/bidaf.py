@@ -223,7 +223,7 @@ class BidirectionalAttentionFlowSimal(Model):
         passage_lengths=get_lengths_from_binary_sequence_mask(passage_lstm_mask)
 
         #each_answer_feature=B*MaxSubSpans*MaxSpanLength*embedding_dims
-        each_answer_features,answer_lengths,answer_features_over_passage_mask=getAllSubSpans(combined_repr,passage_lengths,10,padToken=torch.zeros([1]))
+        each_answer_features,answer_lengths,answer_features_over_passage_mask=getAllSubSpans(combined_repr,passage_lengths,10)
         
         '''
             Use the combined representation to simultaneously predict both span start and end.
