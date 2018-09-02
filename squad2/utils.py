@@ -11,8 +11,8 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
     max_passage_length=torch.max(passage_lengths).item()
     assert max_passage_length==passage.size(1),"Max Passage length doesn't align with tensor shapes"
     #i T
-    i=torch.arange(end=max_passage_length).unsqueeze(0).expand(max_passage_length,-1)
-    j=torch.arange(end=max_passage_length).unsqueeze(1).expand(-1,max_passage_length)
+    i=torch.arange(end=max_passage_length,device=sequence.device).unsqueeze(0).expand(max_passage_length,-1)
+    j=torch.arange(end=max_passage_length,device=sequence.device).unsqueeze(1).expand(-1,max_passage_length)
     allIndices=torch.stack([i,j],dim=-1)
     ifVerbosePrint(allIndices,allIndices.shape)
     lengths=j-i+1
@@ -38,7 +38,7 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
     ifVerbosePrint(validIndices,validIndices.shape)
     
     max_length=min(torch.max(lengths),max_span_length)
-    expanded_indices_mask=torch.arange(end=max_length)
+    expanded_indices_mask=torch.arange(end=max_length,device=sequence.device)
     
     expanded_indices_mask=expanded_indices_mask.view(1,*expanded_indices_mask.size()).expand(validIndices.shape[0],*expanded_indices_mask.size())
     ifVerbosePrint(expanded_indices_mask,expanded_indices_mask.shape)
