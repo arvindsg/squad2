@@ -54,6 +54,7 @@ class SquadReaderFilter(DatasetReader):
             dataset_json = json.load(dataset_file)
             dataset = dataset_json['data']
         logger.info("Reading the dataset")
+        cnt = 0
         for article in dataset:
             for paragraph_json in article['paragraphs']:
                 paragraph = paragraph_json["context"]
@@ -62,9 +63,12 @@ class SquadReaderFilter(DatasetReader):
                 for question_answer in paragraph_json['qas']:
                     question_text = question_answer["question"].strip().replace("\n", "")
                     answer_texts = [answer['text'] for answer in question_answer['answers']]
-                    if min([len(self._tokenizer.tokenize(x)) for x in answer_texts])>10 or len(self._tokenizer.tokenize(paragraph))>255:
-                        print('skipping')
+                    if min([len(self._tokenizer.tokenize(x)) for x in answer_texts])>10 or len(tokenized_paragraph) > 255:
+                        print('skipping',cnt)
+                        cnt+=1
                         continue
+                    print(cnt)
+                    cnt+=1
                     span_starts = [answer['answer_start'] for answer in question_answer['answers']]
                     span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
                     instance = self.text_to_instance(question_text,
