@@ -14,15 +14,17 @@ from allennlp.modules.matrix_attention.legacy_matrix_attention import LegacyMatr
 from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
 from squad2.utils import getAllSubSpans, BetterTimeDistributed, masked_softmax,\
-    getIndiceForGoldSubSpan
+    getIndiceForGoldSubSpan, getSpanStarts, getSpanEnds,\
+    get_best_answers_mask_over_passage
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask,\
     get_mask_from_sequence_lengths
+from allennlp.modules.seq2vec_encoders.seq2vec_encoder import Seq2VecEncoder
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@Model.register("bidaf")
-class BidirectionalAttentionFlow(Model):
+@Model.register("bidafsimal")
+class BidirectionalAttentionFlowSimal(Model):
     """
     This class implements Minjoon Seo's `Bidirectional Attention Flow model
     <https://www.semanticscholar.org/paper/Bidirectional-Attention-Flow-for-Machine-Seo-Kembhavi/7586b7cca1deba124af80609327395e613a20e9d>`_
@@ -74,12 +76,12 @@ class BidirectionalAttentionFlow(Model):
                  phrase_layer: Seq2SeqEncoder,
                  attention_similarity_function: SimilarityFunction,
                  modeling_layer: Seq2SeqEncoder,
-                 span_end_encoder: Seq2SeqEncoder,
+                 span_encoder: Seq2VecEncoder,
                  dropout: float = 0.2,
                  mask_lstms: bool = True,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
-        super(BidirectionalAttentionFlow, self).__init__(vocab, regularizer)
+        super(BidirectionalAttentionFlowSimal, self).__init__(vocab, regularizer)
 
         self._text_field_embedder = text_field_embedder
         self._highway_layer = TimeDistributed(Highway(text_field_embedder.get_output_dim(),
@@ -87,16 +89,11 @@ class BidirectionalAttentionFlow(Model):
         self._phrase_layer = phrase_layer
         self._matrix_attention = LegacyMatrixAttention(attention_similarity_function)
         self._modeling_layer = modeling_layer
-        self._span_end_encoder = span_end_encoder
-
-        encoding_dim = phrase_layer.get_output_dim()
+        self._span_encoder = TimeDistributed(span_encoder) 
         modeling_dim = modeling_layer.get_output_dim()
-        span_start_input_dim = encoding_dim * 4 + modeling_dim
-        self._span_start_predictor = TimeDistributed(torch.nn.Linear(span_start_input_dim, 1))
-
-        span_end_encoding_dim = span_end_encoder.get_output_dim()
-        span_end_input_dim = encoding_dim * 4 + span_end_encoding_dim
-        self._span_end_predictor = TimeDistributed(torch.nn.Linear(span_end_input_dim, 1))
+        encoding_dim = phrase_layer.get_output_dim()
+        output_dim=span_encoder.get_output_dim()
+        self._span_predictor=TimeDistributed(torch.nn.Linear(output_dim, 1))
 
         # Bidaf has lots of layer dimensions which need to match up - these aren't necessarily
         # obvious from the configuration files, so we check here.
@@ -104,9 +101,9 @@ class BidirectionalAttentionFlow(Model):
                                "modeling layer input dim", "4 * encoding dim")
         check_dimensions_match(text_field_embedder.get_output_dim(), phrase_layer.get_input_dim(),
                                "text field embedder output dim", "phrase layer input dim")
-        check_dimensions_match(span_end_encoder.get_input_dim(), 4 * encoding_dim + 3 * modeling_dim,
+        check_dimensions_match(span_encoder.get_input_dim(), 4 * encoding_dim +  modeling_dim,
                                "span end encoder input dim", "4 * encoding dim + 3 * modeling dim")
-
+        
         self._span_start_accuracy = CategoricalAccuracy()
         self._span_end_accuracy = CategoricalAccuracy()
         self._span_accuracy = BooleanAccuracy()
@@ -226,7 +223,7 @@ class BidirectionalAttentionFlow(Model):
         passage_lengths=get_lengths_from_binary_sequence_mask(passage_lstm_mask)
 
         #each_answer_feature=B*MaxSubSpans*MaxSpanLength*embedding_dims
-        each_answer_features,answer_lengths=getAllSubSpans(combined_repr,passage_lengths,10,padToken=torch.zeros([1]))
+        each_answer_features,answer_lengths,answer_features_over_passage_mask=getAllSubSpans(combined_repr,passage_lengths,10,padToken=torch.zeros([1]))
         
         '''
             Use the combined representation to simultaneously predict both span start and end.
@@ -244,10 +241,15 @@ class BidirectionalAttentionFlow(Model):
         
         answer_logits= self._span_predictor(answers_encoded).squeeze(-1)
 #         answer_sequence_mask_creator=BetterTimeDistributed(masked_softmax)
-
-        answer_probs=util.masked_softmax(answer_logits,answer_features_mask.narrow(-1,0,1).squeeze(-1))
+        valid_answers_mask=answer_features_mask.narrow(-1,0,1).squeeze(-1)
+        answer_probs=masked_softmax(answer_logits,valid_answers_mask)
         
-        best_span = utils.get_best_span(answer_probs)
+        best_span_answer_probs_indice=self.get_best_span(answer_probs)
+        
+        best_answers_mask=get_best_answers_mask_over_passage(answer_features_over_passage_mask,best_span_answer_probs_indice)
+        best_span_start=getSpanStarts(best_answers_mask)
+        best_span_end=getSpanEnds(best_answers_mask)
+        best_span=torch.stack([best_span_start,best_span_end],dim=-1)
 
         output_dict = {
         "passage_question_attention": passage_question_attention,
@@ -255,8 +257,8 @@ class BidirectionalAttentionFlow(Model):
 #         "span_start_probs": span_start_probs,
 #         "span_end_logits": span_end_logits,
 #         "span_end_probs": span_end_probs,
-        "answer_probs":answer_probs
-#         "best_span": best_span,
+        "answer_probs":answer_probs,
+        "best_span": best_span
         }
     #         best_span = self.get_best_span(span_start_probs,span_end_probs)
 
@@ -307,11 +309,11 @@ class BidirectionalAttentionFlow(Model):
 #             self._span_start_accuracy(span_start_logits, span_start.squeeze(-1))
 #             loss += nll_loss(util.masked_log_softmax(span_end_logits, passage_mask), span_end.squeeze(-1))
 #             self._span_end_accuracy(span_end_logits, span_end.squeeze(-1))
-#             self._span_accuracy(best_span, torch.stack([span_start, span_end], -1))
-            print(answer_logits.shape,answer_features_mask.shape)
+            self._span_accuracy(best_span, torch.stack([span_start, span_end], -1))
+#             print(answer_logits.shape,answer_features_mask.shape)
             
             
-            loss=nll_loss(util.masked_log_softmax(answer_logits,answer_features_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_mask))
+            loss=nll_loss(util.masked_log_softmax(answer_logits,valid_answers_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_over_passage_mask))
             output_dict["loss"] = loss
 
         # Compute the EM and F1 on SQuAD and add the tokenized input to the output.
@@ -339,8 +341,8 @@ class BidirectionalAttentionFlow(Model):
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         exact_match, f1_score = self._squad_metrics.get_metric(reset)
         return {
-                'start_acc': self._span_start_accuracy.get_metric(reset),
-                'end_acc': self._span_end_accuracy.get_metric(reset),
+#                 'start_acc': self._span_start_accuracy.get_metric(reset),
+#                 'end_acc': self._span_end_accuracy.get_metric(reset),
                 'span_acc': self._span_accuracy.get_metric(reset),
                 'em': exact_match,
                 'f1': f1_score,
@@ -349,34 +351,34 @@ class BidirectionalAttentionFlow(Model):
     @staticmethod
     def get_best_span(span_probs: torch.Tensor) -> torch.Tensor:
         if span_probs.dim() != 2:
-            raise ValueError("Input shape must be (batch_size, passage_length)")
-        return torch.argmax(span_probs, 1, keepdim)
+            raise ValueError("Input shape must be (batch_size, num_answers)")
+        return torch.argmax(span_probs, 1)
         
-    @classmethod
-    def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
-        embedder_params = params.pop("text_field_embedder")
-        text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
-        num_highway_layers = params.pop_int("num_highway_layers")
-        phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
-        similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
-        modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
-        span_end_encoder = Seq2SeqEncoder.from_params(params.pop("span_end_encoder"))
-        dropout = params.pop_float('dropout', 0.2)
-
-        initializer = InitializerApplicator.from_params(params.pop('initializer', []))
-        regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
-
-        mask_lstms = params.pop_bool('mask_lstms', True)
-        params.assert_empty(cls.__name__)
-        return cls(vocab=vocab,
-                   text_field_embedder=text_field_embedder,
-                   num_highway_layers=num_highway_layers,
-                   phrase_layer=phrase_layer,
-                   attention_similarity_function=similarity_function,
-                   modeling_layer=modeling_layer,
-                   span_end_encoder=span_end_encoder,
-                   dropout=dropout,
-                   mask_lstms=mask_lstms,
-                   initializer=initializer,
-                   regularizer=regularizer)
+#     @classmethod
+#     def from_params(cls, vocab: Vocabulary, params: Params) -> 'BidirectionalAttentionFlow':
+#         embedder_params = params.pop("text_field_embedder")
+#         text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
+#         num_highway_layers = params.pop_int("num_highway_layers")
+#         phrase_layer = Seq2SeqEncoder.from_params(params.pop("phrase_layer"))
+#         similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
+#         modeling_layer = Seq2SeqEncoder.from_params(params.pop("modeling_layer"))
+#         span_end_encoder = Seq2SeqEncoder.from_params(params.pop("span_end_encoder"))
+#         dropout = params.pop_float('dropout', 0.2)
+# 
+#         initializer = InitializerApplicator.from_params(params.pop('initializer', []))
+#         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
+# 
+#         mask_lstms = params.pop_bool('mask_lstms', True)
+#         params.assert_empty(cls.__name__)
+#         return cls(vocab=vocab,
+#                    text_field_embedder=text_field_embedder,
+#                    num_highway_layers=num_highway_layers,
+#                    phrase_layer=phrase_layer,
+#                    attention_similarity_function=similarity_function,
+#                    modeling_layer=modeling_layer,
+#                    span_end_encoder=span_end_encoder,
+#                    dropout=dropout,
+#                    mask_lstms=mask_lstms,
+#                    initializer=initializer,
+#                    regularizer=regularizer)
 

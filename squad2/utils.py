@@ -96,22 +96,31 @@ def getValidSubSpansMask(sequence,sequence_lengths,max_span_length=-1):
 def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=torch.zeros([1])):
     final_mask=getValidSubSpansMask(features, feature_lengths, max_span_length)
     return (*pointedSelect(final_mask, features,padToken),final_mask)
-def getIndiceForGoldSubSpan(goldStarts,goldEnds,mask):
-    
-    print(mask,mask.shape)
-    spanEnds=torch.max(mask,dim=-1)[0]
+def getSpanEnds(mask):
+    return torch.max(mask,dim=-1)[0]
+def getSpanStarts(mask):
     maxSpan=torch.max(mask)
     maskLong=mask.long()
-    spanStarts=torch.min(((maskLong!=-1).long()*maskLong)+((maskLong==-1).long()*(maxSpan+1)),dim=-1)[0]
+    return torch.min(((maskLong!=-1).long()*maskLong)+((maskLong==-1).long()*(maxSpan+1)),dim=-1)[0]
+def getIndiceForGoldSubSpan(goldStarts,goldEnds,mask):
+    
+#     print(mask,mask.shape)
+    spanEnds=getSpanEnds(mask)
+
+    spanStarts=getSpanStarts(mask)
     #predictedSpans B*Max_Answers*T
     predictedSpans=torch.stack([spanStarts,spanEnds],dim=-1)
     #goldSpans B*2
     goldSpans=torch.stack([goldStarts,goldEnds],dim=-1)
 #     print(predictedSpans)
 #     print(goldSpans)
-    goldMask=torch.sum((predictedSpans==goldSpans.unsqueeze(1)),dim=-1)==2
+    goldMask=torch.sum(predictedSpans==goldSpans,dim=-1)==2
     goldIndices=torch.argmax(goldMask, dim=1)
     return goldIndices
+
+def get_best_answers_mask_over_passage(answer_features_over_passage_mask,best_answer_indices):   
+        return torch.gather(answer_features_over_passage_mask,dim=1,index=best_answer_indices.view(-1,1,1).expand(-1,1,answer_features_over_passage_mask.size(-1))).squeeze(1)
+
 
 def pointedSelect(expanded_indices_mask,passage,padToken,padTokenIndice=-1):
     max_passage_length=passage.size(1)
@@ -144,13 +153,7 @@ class BetterTimeDistributed(torch.nn.Module):
         wrapped_inputs=list(map(lambda input:input.unsqueeze(-1),inputs))
         return self.timeDistributed(wrapped_inputs)
     
-def masked_softmax(vec, mask, dim=1):
-    masked_vec = vec * mask.float()
-    max_vec = torch.max(masked_vec, dim=dim, keepdim=True)[0]
-    exps = torch.exp(masked_vec-max_vec)
-    masked_exps = exps * mask.float()
-    masked_sums = masked_exps.sum(dim, keepdim=True)
-    zeros=(masked_sums == 0)
-    masked_sums += zeros.float()
-    return masked_exps/masked_sums
+def masked_softmax(vec, mask, dim=-1):
+    masked_vec = vec * mask.float()+((mask==0).float()*-1E7)
+    return torch.nn.functional.softmax(masked_vec,dim)
 
