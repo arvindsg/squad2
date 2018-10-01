@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import torch
-from torch.nn.functional import nll_loss
+from torch.nn.functional import nll_loss, l1_loss
 
 from allennlp.common import Params
 from allennlp.common.checks import check_dimensions_match
@@ -15,10 +15,11 @@ from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
 from squad2.utils import getAllSubSpans, BetterTimeDistributed, masked_softmax,\
     getIndiceForGoldSubSpan, getSpanStarts, getSpanEnds,\
-    get_best_answers_mask_over_passage
+    get_best_answers_mask_over_passage, getGoldMask
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask,\
     get_mask_from_sequence_lengths
 from allennlp.modules.seq2vec_encoders.seq2vec_encoder import Seq2VecEncoder
+from torch.nn.modules.loss import BCEWithLogitsLoss
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -318,8 +319,10 @@ class BidirectionalAttentionFlowSimal(Model):
 #             print(answer_logits.shape,answer_features_mask.shape)
             
             
-            loss=nll_loss(util.masked_log_softmax(answer_logits,valid_answers_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_over_passage_mask))
-            
+            #loss=nll_loss(util.masked_log_softmax(answer_logits,valid_answers_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_over_passage_mask))
+            masked_answer_logits= answer_logits * valid_answers_mask.float()+((valid_answers_mask==0).float()*-1E7)
+            gold_mask = getGoldMask(span_start,span_end,answer_features_over_passage_mask)
+            loss = BCEWithLogitsLoss(masked_answer_logits,gold_mask)
             del answer_features_over_passage_mask
             output_dict["loss"] = loss
 

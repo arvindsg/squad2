@@ -104,6 +104,22 @@ def getSpanStarts(mask):
     maxSpan=torch.max(mask)
     maskLong=mask.long()
     return torch.min(((maskLong!=-1).long()*maskLong)+((maskLong==-1).long()*(maxSpan+1)),dim=-1)[0]
+
+def getGoldMask(goldStarts,goldEnds,mask):
+    
+#     print(mask,mask.shape)
+    spanEnds=getSpanEnds(mask)
+
+    spanStarts=getSpanStarts(mask)
+    #predictedSpans B*Max_Answers*T
+    predictedSpans=torch.stack([spanStarts,spanEnds],dim=-1)
+    #goldSpans B*2
+    goldSpans=torch.stack([goldStarts,goldEnds],dim=-1)
+#     print(predictedSpans)
+#     print(goldSpans)
+    goldMask=torch.sum(predictedSpans==goldSpans,dim=-1)==2
+    return goldMask
+
 def getIndiceForGoldSubSpan(goldStarts,goldEnds,mask):
     
 #     print(mask,mask.shape)
