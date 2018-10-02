@@ -322,7 +322,10 @@ class BidirectionalAttentionFlowSimal(Model):
             #loss=nll_loss(util.masked_log_softmax(answer_logits,valid_answers_mask),getIndiceForGoldSubSpan(span_start,span_end,answer_features_over_passage_mask))
             masked_answer_logits= answer_logits * valid_answers_mask.float()+((valid_answers_mask==0).float()*-1E7)
             gold_mask = getGoldMask(span_start,span_end,answer_features_over_passage_mask)
-            loss = BCEWithLogitsLoss(masked_answer_logits,gold_mask)
+            #print('gold_mask',gold_mask,gold_mask.shape)
+            #print('mask answer',masked_answer_logits,masked_answer_logits.shape)
+            #print('answer features',answer_features_over_passage_mask,answer_features_over_passage_mask.shape)
+            loss = BCEWithLogitsLoss()(masked_answer_logits,gold_mask.float())
             del answer_features_over_passage_mask
             output_dict["loss"] = loss
 
