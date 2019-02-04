@@ -98,6 +98,7 @@ def getAllSubSpans(features,feature_lengths,max_span_length=-1,padToken=None):
         padToken=torch.zeros([1],device=features.device)
     final_mask=getValidSubSpansMask(features, feature_lengths, max_span_length)
     return (*pointedSelect(final_mask, features,padToken),final_mask)
+
 def getSpanEnds(mask):
     return torch.max(mask,dim=-1)[0]
 def getSpanStarts(mask):

@@ -56,6 +56,8 @@ class SquadReaderFilter(DatasetReader):
         logger.info("Reading the dataset")
         cnt = 0
         for article in dataset:
+            if cnt>=2000:
+                break
             for paragraph_json in article['paragraphs']:
                 paragraph = paragraph_json["context"]
                 tokenized_paragraph = self._tokenizer.tokenize(paragraph)
@@ -65,10 +67,10 @@ class SquadReaderFilter(DatasetReader):
                     answer_texts = [answer['text'] for answer in question_answer['answers']]
                     tokenized_question=self._tokenizer.tokenize(question_text)
                     if min([len(self._tokenizer.tokenize(x)) for x in answer_texts])>10 or len(tokenized_paragraph) > 255 or len(tokenized_question)<2:
-                        print('skipping',cnt)
+#                         print('skipping',cnt)
                         cnt+=1
                         continue
-                    print(cnt)
+#                     print(cnt)
                     cnt+=1
                     span_starts = [answer['answer_start'] for answer in question_answer['answers']]
                     span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
@@ -78,6 +80,7 @@ class SquadReaderFilter(DatasetReader):
                                                      answer_texts,
                                                      tokenized_paragraph)
                     yield instance
+                    break;
 
     @overrides
     def text_to_instance(self,  # type: ignore
